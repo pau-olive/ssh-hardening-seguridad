@@ -1,6 +1,6 @@
 # SSH Hardening: Medidas de Seguridad contra Ataques de Fuerza Bruta
 
-![Portada del proyecto](cover.png)
+![Portada del proyecto](cover.jpg)
 
 ## Descripción del Proyecto
 Proyecto de **Administración de Sistemas y Ciberseguridad** enfocado en la auditoría y endurecimiento del protocolo SSH contra vulnerabilidades críticas.
@@ -18,285 +18,177 @@ El proyecto documenta el análisis completo de un servicio SSH sin proteger, la 
   - Autenticación basada en clave pública
   - Desactivar autenticación por contraseña
 - **Protección contra Brute Force**: Instalación y configuración de fail2ban (máx 3 intentos, 5 min ban).
-- **Análisis Forense**: Revisión de logs de auditoría (/var/log/auth.log).
-- **20+ capturas** del proceso completo: reconocimiento → ataque → hardening.
-- Entorno **100% reproducible** en Linux.
+- **Análisis Forense**: Revisión de logs de autenticación y detección de intentos maliciosos.
 
 ---
 
-## Tecnologías y Herramientas Utilizadas
-- **Auditoría y Explotación**
-  - nmap (reconocimiento de servicios)
-  - Hydra (ataque de fuerza bruta)
-  - SSH OpenSSH 9.6p1
-- **Hardening**
-  - sshd_config (configuración SSH)
-  - fail2ban (limitación de intentos)
-  - ssh-keygen (generación de claves)
-- **Monitoreo**
-  - /var/log/auth.log (logs de autenticación)
-  - systemctl (control de servicios)
-- **Entorno**
-  - Ubuntu Server 22.04
-  - Ubuntu Cliente
-  - Kali Linux
+## PARTE 1: Atacando el Servicio SSH
 
----
+### Reconocimiento con nmap
+![Análisis nmap](capturas/img-004.png)
 
-## Objetivos Alcanzados
-- Identificación de vulnerabilidades en SSH sin proteger (puerto predeterminado, sin límites de intentos).
-- Recopilación de información con nmap: versión exacta del servidor, puerto abierto, MAC, latencia.
-- Ataque de fuerza bruta exitoso: extracción de credenciales (usuario `gato`, contraseña `miau`).
-- Acceso al servidor comprometido e inspección de logs de ataque.
-- Implementación y verificación de todas las medidas de seguridad.
-- Demostración de que el servidor hardened rechaza ataques idénticos.
-- Análisis forense completo: auditoría de cambios, eventos de seguridad, logs de intrusión.
-
----
-
-## Procesos Documentados
-
-### PARTE 1: Análisis y Explotación de Vulnerabilidades
-
-#### 1.1 Reconocimiento con nmap
+Se realiza un escaneo de puertos para identificar el servicio SSH:
 ```bash
-nmap -sS -sV -p 22 [IP_SERVIDOR]
+nmap -sS -sV -p 22 IP_SERVER
 ```
-**Información extraída:**
-- Estado del host: Up (activo)
-- Puerto abierto: 22/tcp
-- Servicio: SSH OpenSSH 9.6p1 Ubuntu 3ubuntu13.11
-- Dirección MAC: 08:00:27:16:B9:1B
+
+**Resultados clave:**
+- Host activo (UP)
+- Puerto 22/tcp abierto
+- Servicio: OpenSSH 9.6p1 Ubuntu
 - Latencia: 0.00049s
 
-#### 1.2 Creación de Usuario Vulnerable
+### Creación de Usuario de Prueba
+Se crea el usuario `gato` con contraseña `miau` para las pruebas de ataque.
+
+### Intento de Acceso Manual
+![Intento manual fallido](capturas/img-005.png)
+
+Se realizan intentos de acceso con contraseñas no autorizadas para evaluar respuestas del sistema.
+
+### Ataque de Fuerza Bruta con Hydra
+![Ejecución de hydra](capturas/img-006.png)
+
+Usando la herramienta hydra se ejecuta un ataque de fuerza bruta:
 ```bash
-sudo useradd -m -s /bin/bash gato
-sudo passwd gato  # Contraseña: miau
+hydra -l gato -P passwords_comunes.txt ssh://IP_SERVER -t 4
 ```
 
-#### 1.3 Diccionario de Contraseñas
-```bash
-cat > passwords_comunes.txt << 'EOF'
-123456
-password
-12345678
-qwerty
-123456789
-12345
-1234567
-111111
-1234567890
-123123
-miau
-EOF
-```
+**Resultado:** Compromiso exitoso de credenciales en menos de 5 intentos.
 
-#### 1.4 Ataque de Fuerza Bruta con Hydra
-```bash
-hydra -l gato -P passwords_comunes.txt ssh://[IP_SERVIDOR]:22 -v
-```
-**Resultado:** ✅ Acceso exitoso `gato:miau`
+### Acceso Post-Exploración
+![Conexión SSH exitosa](capturas/img-007.png)
 
-#### 1.5 Evidencias del Ataque en Logs
-```bash
-sudo tail -f /var/log/auth.log
-```
-**Hallazgos:**
-- Múltiples intentos fallidos desde IP atacante
-- Acceso exitoso registrado
-- IP, puerto, usuario y timestamp de compromiso documentados
+Se establece conexión remota al servidor comprometido.
+
+### Análisis de Logs
+![Logs de autenticación](capturas/img-008.png)
+
+En `/var/log/auth.log` se registran todos los intentos fallidos:
+- Timestamp exacto de intentos
+- Dirección IP del atacante
+- Usuario objetivo
+- Contraseñas probadas (en logs detallados)
 
 ---
 
-### PARTE 2: Implementación de Medidas de Seguridad
+## PARTE 2: Implementación de Medidas de Seguridad
 
-#### 2.1 Cambio de Puerto SSH
-**Ubicación:** `/etc/ssh/sshd_config`
+### 1. Cambio de Puerto SSH (22 → 2222)
+![Configuración puerto](capturas/img-009.png)
 
+En `/etc/ssh/sshd_config`:
 ```bash
-# ANTES
-#Port 22
-
-# DESPUÉS
 Port 2222
-
-sudo systemctl restart sshd
 ```
-**Prueba:** Acceso desde puerto 22 → rechazado. Acceso desde puerto 2222 → exitoso.
 
-#### 2.2 Deshabilitar Acceso Root
-**En sshd_config:**
-
+Reiniciar servicio:
+```bash
+sudo systemctl restart ssh
 ```
+
+**Resultado:** Conexiones al puerto 22 rechazadas automáticamente.
+
+### 2. Deshabilitar Acceso root
+![Desabilitar root](capturas/img-010.png)
+
+En `sshd_config`:
+```bash
 PermitRootLogin no
 ```
 
-**Prueba:**
+**Impacto:** El usuario root no puede conectarse remotamente vía SSH, incluso con contraseña correcta.
+
+### 3. Instalación de fail2ban
+![Instalación fail2ban](capturas/img-011.png)
+
 ```bash
-ssh -p 2222 root@[IP]
-# Permission denied (public key)
+sudo apt install fail2ban
 ```
 
-#### 2.3 Instalación y Configuración de fail2ban
+### 4. Configuración de fail2ban
+![Configuración fail2ban](capturas/img-012.png)
 
-**Instalación:**
-```bash
-sudo apt-get install fail2ban
-sudo systemctl enable fail2ban
-```
-
-**Configuración en `/etc/fail2ban/jail.local`:**
+En `/etc/fail2ban/jail.local`:
 ```ini
-[DEFAULT]
-bantime = 300          # 5 minutos
-findtime = 600         # ventana 10 min
-maxretry = 3
-
 [sshd]
 enabled = true
-port = 2222
-filter = sshd
-logpath = /var/log/auth.log
 maxretry = 3
 bantime = 300
+findtime = 600
 ```
 
-**Prueba:** 3 intentos fallidos → IP baneada → Conexión rechazada en intento 4.
+- **maxretry**: 3 intentos antes de banear
+- **bantime**: 300 segundos (5 minutos)
+- **findtime**: Ventana de detección de 600 segundos (10 minutos)
 
-#### 2.4 Autenticación basada en Clave Pública
+### 5. Prueba de Ban Automático
+![Ban de fail2ban activo](capturas/img-013.png)
 
-**Generación de clave (cliente):**
+Tras 3 intentos fallidos de login, la IP es baneada y rechaza nuevas conexiones con `Connection refused`.
+
+### 6. Autenticación por Clave Pública (Ubuntu Cliente)
+![Generación de claves](capturas/img-014.png)
+
+En la máquina Ubuntu cliente:
 ```bash
-ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_gato -N ""
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
 ```
 
-**Copiar clave al servidor:**
+### 7. Copia de Clave Pública al Servidor
+![ssh-copy-id](capturas/img-015.png)
+
 ```bash
-ssh-copy-id -i ~/.ssh/id_rsa_gato.pub -p 2222 gato@[IP]
+ssh-copy-id -i ~/.ssh/id_rsa.pub gato@SERVER -p 2222
 ```
 
-**Ubicación en servidor:**
-```
-~/.ssh/authorized_keys
-```
+La clave pública se almacena en `~/.ssh/authorized_keys` en el servidor.
 
-#### 2.5 Deshabilitar Autenticación por Contraseña
+### 8. Desactivar Autenticación por Contraseña
+![Deshabilitar contraseña](capturas/img-016.png)
 
-**En sshd_config:**
-```
+En `sshd_config`:
+```bash
 PasswordAuthentication no
 PubkeyAuthentication yes
 ```
 
-**Prueba:**
-```bash
-# Intento con contraseña → rechazado
-ssh -p 2222 gato@[IP]
-# Permission denied (publickey)
+**Resultado:** Solo se acepta autenticación por clave pública.
 
-# Acceso con clave → exitoso
-ssh -p 2222 -i ~/.ssh/id_rsa_gato gato@[IP]
-```
+### 9. Verificación Post-Hardening
+- Acceso desde Ubuntu Cliente: ✅ Exitoso (clave pública)
+- Acceso desde Kali Linux: ❌ Rechazado (sin clave pública + IP baneada)
+- Acceso root: ❌ Bloqueado en todos los casos
 
 ---
 
-## Análisis de Resultados
-
-### Estado ANTES de Hardening
-| Aspecto | Vulnerabilidad |
-|---------|-----------------|
-| **Puerto SSH** | Predeterminado (22) - evidente |
-| **Intentos de login** | Sin límite |
-| **Root login** | Permitido |
-| **Contraseñas** | Aceptadas |
-| **Protección brute-force** | Ninguna |
-| **Resultado Hydra** | ✗ Acceso exitoso |
-
-### Estado DESPUÉS de Hardening
-| Aspecto | Medida Implementada |
-|---------|---------------------|
-| **Puerto SSH** | 2222 (oscuridad) |
-| **Intentos de login** | Máx 3 antes de ban |
-| **Root login** | Deshabilidado |
-| **Contraseñas** | Deshabilitadas |
-| **Protección brute-force** | fail2ban (5 min ban) |
-| **Resultado Hydra** | ✓ IP baneada rápidamente |
+## Análisis de Logs Finales
+Revisión completa de `/var/log/auth.log` mostrando:
+- Intentos fallidos iniciales
+- Ataque de hydra y sus registros
+- Modificaciones de configuración SSH
+- Bans de fail2ban
+- Transición a autenticación por clave
+- Rechazo definitivo de métodos inseguros
 
 ---
 
-## Prueba Final: "Algodón" (Reproducción del Ataque Post-Hardening)
+## Conclusiones
 
-**Intento 1: nmap**
-```bash
-nmap -sS -sV -p 2222 [IP]
-# Detecta puerto pero acceso denegado
-```
+La implementación de estas medidas reduce significativamente la superficie de ataque:
 
-**Intento 2: Hydra**
-```bash
-hydra -l gato -P passwords_test.txt ssh://[IP]:2222
-# Connection refused (fail2ban)
-```
+1. **Cambio de puerto**: Evita escaneos automatizados en puerto estándar
+2. **fail2ban**: Previene ataques de fuerza bruta efectivamente
+3. **Clave pública**: Elimina vulnerabilidad a diccionarios de contraseñas
+4. **Desactivar root**: Reduce atacantes potenciales
+5. **Logs monitoreados**: Permite detección temprana de amenazas
 
-**Intento 3: SSH directo**
-```bash
-ssh -p 2222 gato@[IP]
-# Permission denied (publickey)
-```
-
-**Intento 4: root**
-```bash
-ssh -p 2222 root@[IP]
-# Permission denied (publickey)
-```
-
-**Conclusión:** Todos los vectores de ataque bloqueados ✓
+**Resultado final:** Servicio SSH endurecido conforme a mejores prácticas de ciberseguridad.
 
 ---
 
-## Capturas de Evidencia
-Las siguientes capturas documentan el proceso completo:
-- Reconocimiento con nmap
-- Ejecución de hydra
-- Acceso exitoso pre-hardening
-- Modificación de sshd_config
-- Estado de fail2ban
-- Bloqueo de acceso post-hardening
-- Análisis de logs (/var/log/auth.log)
-- Generación de claves SSH
-- Transferencia de claves públicas
-- Acceso exitoso con autenticación por clave
+**Alumno:** Pau Olivé Moreno  
+**Centro:** CEV (Centro de Estudios)  
+**Ciclo:** ASIX (Administración de Sistemas Informáticos en Red) + Ciberseguridad  
+**Actividad Evaluada:** Hardening SSH contra Ataques de Fuerza Bruta  
 
-*Ver carpeta `/screenshots` para todas las imágenes.*
-
----
-
-## Recomendaciones de Seguridad Posteriores
-1. Implementar certificados TLS/SSL para otras aplicaciones.
-2. Configurar 2FA (autenticación de dos factores) adicional.
-3. Auditoría continua de logs con herramientas centralizadas (ELK, Splunk).
-4. Rotación periódica de claves SSH (cada 90 días).
-5. Implementar IDS/IPS en la red perimetral.
-6. Backup automático de configuraciones críticas.
-7. Monitoreo de intentos de acceso sospechosos con alertas.
-
----
-
-## Conclusión
-Este proyecto demuestra de manera práctica cómo un servidor SSH vulnerable puede ser comprometido en segundos mediante técnicas estándar, y cómo múltiples capas de seguridad (defensa en profundidad) hacen que el mismo servidor sea prácticamente inmune a ataques similares.
-
-**Postura de Seguridad:** CRÍTICA → MEDIA-ALTA
-
----
-
-**📝 Nota Académica**
-
-**Este proyecto es una actividad evaluada del ciclo ASIX en CEV (Centro de Estudios Vicens Vives).** Realizado como parte de la formación en administración de sistemas y ciberseguridad.
-
----
-
-**Autor:** Pau Olivé Moreno  
-**Institución:** CEV - ASIX  
-**Fecha:** Marzo 2026  
-**Versión:** 1.0
